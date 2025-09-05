@@ -1,8 +1,8 @@
 -- Mission_TOBHighPriest
 -- Version 1.0
 -- TODO: Change to handle using RGMercs as well as CWTN
--- TODO: Check to make sure entire group has zoned in
--- TODO: Make sure LEM is loaded and teh correct LEM is active
+-- DONE: Check to make sure entire group has zoned in
+-- TODO: Make sure LEM is loaded and the correct LEM is active.  Also place ta link to the LEM in the setup
 -- TODO: Allow script restart if it errors out by knowing what phase is going
 -- TODO: 
 -- TODO: 
@@ -13,7 +13,7 @@ local lip = require('lib.LIP')
 local logger = require('utils.logger')
 
 -- #region Variables
-local DEBUG = false
+logger.set_log_level(4) -- 4 = Info level, use 5 for debug, and 6 for trace
 local command = 0
 local Ready = false
 local my_class = mq.TLO.Me.Class.ShortName()
@@ -75,6 +75,17 @@ local function load_settings()
 	end
 end
 
+local function WaitForNav()
+	logger.debug('Starting WaitForNav()...')
+	while mq.TLO.Navigation.Active() == false do
+		mq.delay(10)
+	end
+	while mq.TLO.Navigation.Active() == true do
+		mq.delay(10)
+	end
+	logger.debug('Exiting WaitForNav()...')
+end
+
 local function checkGroup()
 	local myID = mq.TLO.Me.ID
 	local groupLeaderID = mq.TLO.Group.Leader.ID
@@ -85,7 +96,7 @@ local function checkGroup()
 		groupRunning = 0
 	end
 	if groupRunning ~= hold_groupRunning then 
-		if DEBUG then printf('checkGroup - groupRunning = %s', groupRunning ) end
+		logger.debug('checkGroup - groupRunning = %s', groupRunning )
 		hold_groupRunning = groupRunning
 	end
 end
@@ -96,9 +107,9 @@ local function MoveToSpawn(spawn, distance)
     if (spawn == nil or spawn.ID() == nil) then return end
     if (spawn.Distance() < distance) then return true end
 
-    mq.cmdf('/squelch /nav id %d npc |dist=%s', spawn.ID(), distance)
+    mq.cmdf('/squelch /nav id %d npc |dist=%s log=off', spawn.ID(), distance)
     mq.delay(10)
-    while mq.TLO.Nav.Active() do mq.delay(10) end
+    WaitForNav()
     mq.delay(500)
     return true
 end
@@ -115,7 +126,7 @@ end
 
 local function MoveToAndTarget(spawn)
     if MoveTo(spawn, 15) == false then return false end
-    mq.cmdf('/squelch /target %s', spawn)
+    mq.cmdf('/squelch /mqtarget %s', spawn)
     mq.delay(250)
     return true
 end
@@ -176,13 +187,16 @@ local function the_invis_thing()
     if mq.TLO.Spawn('Group Bard').ID()>0 then
         local bard = mq.TLO.Spawn('Group Bard').Name()
             if bard == mq.TLO.Me.Name() then
-                    mq.cmd('/mutliline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231') 
-                else
-                    mq.cmdf('/dex %s /multiline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231', bard)
+                -- I am a bard, cast 'Selos Sonata' then 'Shaun's Sonorous Clouding'
+                mq.cmd('/mutliline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231') 
+            else
+                -- Telling the bard to cast 'Selos Sonata' then 'Shaun's Sonorous Clouding'
+                mq.cmdf('/dex %s /multiline ; /stopsong; /timed 1 /alt act 3704; /timed 3 /alt act 231', bard)
             end
-            print('\ag-->\atINVer: \ay',bard, '\at IVUer: \ay', bard,'\ag<--')
-        else
-    --without a bard, find who can invis and who can IVU
+            
+            logger.info('\ag-->\atINVer: \ay%s\at IVUer: \ay%s\ag<--', bard, bard)
+    else
+        --without a bard, find who can invis and who can IVU
         local inver = 0
         local ivuer = 0
         local grpsize = mq.TLO.Group.Members()
@@ -219,7 +233,7 @@ local function the_invis_thing()
                 if string.find("ENC MAG WIZ", classShortName(i)) ~= nil then
                     ivuer = i
                     if i == inver then
-                        print('\arUnable to Double Invis')
+                        logger.info('\arUnable to Double Invis')
                         mq.exit()  
                     end
                 break
@@ -229,11 +243,11 @@ local function the_invis_thing()
 
         --catch anyone else in group
         if string.find("WAR MNK ROG BER", classShortName(inver)) ~= nil or string.find("WAR MNK ROG BER", classShortName(ivuer)) ~= nil then
-            print('\arUnable to Double Invis')
+            logger.info('\arUnable to Double Invis')
             mq.exit()
         end
 
-        print('\ag-->\atINVer: \ay',mq.TLO.Group.Member(inver).Name(), '\at IVUer: \ay', mq.TLO.Group.Member(ivuer).Name(),'\ag<--')
+        logger.info('\ag-->\atINVer: \ay%s\at IVUer: \ay%s\ag<--', mq.TLO.Group.Member(inver).Name(), mq.TLO.Group.Member(ivuer).Name())
         
         --if i am group leader and can INVIS, then do the INVIS thing
         if classShortName(inver) == 'SHM' and inver == 0 then
@@ -275,34 +289,31 @@ local function DBLinvis()
         the_invis_thing()
          mq.delay(5000)
     end
-        
-end
-
-local function WaitForNav()
-	-- if DEBUG then print('Starting WaitForNav()...') end
-	while mq.TLO.Navigation.Active() == false do
-		mq.delay(10)
-	end
-	while mq.TLO.Navigation.Active() == true do
-		mq.delay(10)
-	end
-	-- if DEBUG then print('Exiting WaitForNav()...') end
 end
 
 local function checkGroupStats()
-	Ready = true
+	Ready = false
 	local groupSize = mq.TLO.Group()
-   
-    for i = groupSize, 0, -1 do
-		if mq.TLO.Group.Member(i).PctHPs() < 99 then Ready = false end
-		if mq.TLO.Group.Member(i).PctEndurance() < 99 then Ready = false end
-		if mq.TLO.Group.Member(i).PctMana() ~= 0 and mq.TLO.Group.Member(i).PctMana() < 99 then Ready = false end
+    local firstMsg = true
+
+    while Ready ~= true do
+        Ready = true
+        for i = groupSize, 0, -1 do
+            if mq.TLO.Group.Member(i).PctHPs() < 99 then Ready = false end
+            if mq.TLO.Group.Member(i).PctEndurance() < 99 then Ready = false end
+            if mq.TLO.Group.Member(i).PctMana() ~= 0 and mq.TLO.Group.Member(i).PctMana() < 99 then Ready = false end
+        end
+
+       	if Ready == false then 
+            -- Only show the message the first time it runs through this routine
+            if firstMsg then 
+                logger.info('Group not fully ready.  Sitting to regen...')
+                firstMsg = false
+            end
+            mq.cmd('/noparse /dgga /if (${Me.Standing}) /sit')
+            mq.delay(5000)
+    	end
     end
-	if Ready == false then 
-		logger.info('Group not fully ready.  Sitting to regen...')
-		mq.cmd('/noparse /dgga /if (${Me.Standing}) /sit')
-		mq.delay(5000)
-	end
 end
 
 local function StopAttack()
@@ -310,18 +321,17 @@ local function StopAttack()
 	mq.cmd('/squelch /cwtna CheckPriorityTarget off nosave')
 	mq.cmdf('/squelch /%s CheckPriorityTarget off nosave', my_class )
 	mq.cmdf('/squelch /%s Mode manual nosave', my_class )
-	-- if DEBUG then print('StopAttack branch...') end
-	if mq.TLO.Target.CleanName() ~= my_name then mq.cmdf('/target %s', my_name) end
+	logger.debug('StopAttack branch...')
+	if mq.TLO.Target.CleanName() ~= my_name then mq.cmdf('/mqtarget %s', my_name) end
 end
 
 local function ZoneIn(npcName, zoneInPhrase, quest_zone)
     local GroupSize = mq.TLO.Group.Members()
 
-
     for g = 1, GroupSize, 1 do
         local Member = mq.TLO.Group.Member(g).Name()
-        logger.info('\ay-->%s<--\apShould Be Zoning In Now',Member)
-        mq.cmdf('/dex %s /target %s', Member, npcName)
+        logger.info('\ay-->%s<--\apShould Be Zoning In Now', Member)
+        mq.cmdf('/dex %s /mqtarget %s', Member, npcName)
         mq.delay(2000) -- Add a random delay ?
         mq.cmdf('/dex %s /say %s', Member, zoneInPhrase)
     end
@@ -331,7 +341,7 @@ local function ZoneIn(npcName, zoneInPhrase, quest_zone)
         mq.delay(2000)
     end
     if mq.TLO.Target.CleanName() ~= npcName then
-        mq.cmdf('/target %s', npcName)
+        mq.cmdf('/mqtarget %s', npcName)
         mq.delay(5000)
         mq.cmdf('/say %s', zoneInPhrase)
     else
@@ -384,13 +394,13 @@ local function waitForGroupToZone(timeoutSec)
     while os.difftime(os.time(), start) < timeoutSec do
         local notInZone = getGroupMembersNotInZone()
         if #notInZone == 0 then
-            logger.info("✅ All group members are in zone.")
+            logger.info("All group members are in zone.")
             return true
         end
-        logger.info("⏳ Still waiting on: " .. table.concat(notInZone, ", "))
+        logger.info("Still waiting on: " .. table.concat(notInZone, ", "))
         mq.delay(5000)
     end
-    logger.info("❌ Timeout waiting for group members to zone.")
+    logger.info("Timeout waiting for group members to zone.")
     return false
 end
 
@@ -424,7 +434,7 @@ local function Task()
         end
 
         logger.info('\at Got quest.')
-        mq.cmd('/dgga /squelch /windowstate TaskWnd close')
+        mq.cmd('/timed 50 /dgga /squelch /windowstate TaskWnd close')
     end
 
     if (task() == nil) then
@@ -452,17 +462,17 @@ local function DoPrep()
     mq.cmdf('/%s checkprioritytarget off nosave', my_class)
     mq.cmdf('/%s resetcamp', my_class)
     mq.cmd('/dgga /makemevis')
-    mq.cmd('/cwtna burnalways on')
+    mq.cmd('/cwtna burnalways on nosave')
 
     mq.cmd('/cwtna CheckPriorityTarget off nosave')
-    mq.cmd('/cwtna UseAOE Off')
-    mq.cmd('/cwtna BYOS Off')
+    mq.cmd('/cwtna UseAOE Off nosave')
+    mq.cmd('/cwtna BYOS Off nosave')
     mq.cmd('/cwtna BurnAllNamed off nosave')
     mq.cmd('/cwtna burnalways off nosave')
     mq.cmd('/cwtna userez on nosave')
     mq.cmd('/cwtna userezcall on nosave')
     mq.cmd('/cwtna pause off')
-    mq.cmd('/war mode manual')
+    mq.cmdf('/%s mode manual', my_class)
     mq.cmd('/dgza /makemevisible')
     mq.cmd('/dgga /plugin autoloot unload')
     mq.cmd('/dgga /lootly off')
@@ -470,7 +480,23 @@ local function DoPrep()
     mq.cmd('/dgga /lua run lem')
     mq.cmd('/dgga /timed 10 /lem show')
     mq.cmd('/dgga /timed 10 /lem event \'The_Priest_Cure_Lua\' on')
-    mq.cmd('/dgga /timed 10 /lem event \'Brood Cure\' on')
+end
+
+local function ClearStartingSetup()
+    mq.delay(2000)
+    mq.cmd('/cwtn mode chase nosave')
+    mq.cmdf('/%s mode sictank nosave', my_class)
+    mq.cmdf('/%s pause off', my_class)
+    mq.cmdf('/%s checkprioritytarget on nosave', my_class)
+end
+
+
+local function action_openChest()
+    mq.cmd('/squelch /nav spawn _chest | log=off')
+    while mq.TLO.Nav.Active() do mq.delay(5) end
+    mq.cmd('/mqtarget _chest')
+    mq.delay(250)
+    mq.cmd('/open')
 end
 
 -- #endregion
@@ -494,15 +520,9 @@ if my_class ~= 'WAR' and my_class ~= 'SHD' and my_class ~= 'PAL' then
 end
 mq.cmdf('/%s pause on', my_class)
 
-if my_class ~= 'WAR' and my_class ~= 'SHD' and my_class ~= 'PAL' then 
-	logger.info('You must run the script on a tank class...')
-	os.exit()
-end
-
 if zone_name == request_zone then 
 	if mq.TLO.Spawn(request_npc).Distance() > 40 then 
-		logger.info('You are in %s, but too far away from %s to start the mission!', request_zone, request_npc)
-        -- os.exit()
+        logger.info('You are in %s, but too far away from %s to start the mission!  We will attempt to double-invis and run to the mission npc', request_zone, request_npc)
         DBLinvis()
         MoveToAndSay(request_npc, request_phrase)
     end
@@ -522,10 +542,7 @@ if zone_name ~= quest_zone then
 end
 
 -- Check group mana / endurance / hp
-while Ready == false do 
-	checkGroupStats()
-	mq.delay(1000)
-end
+checkGroupStats()
 
 mq.cmdf('/%s mode 0', my_class)
 
@@ -542,7 +559,7 @@ mq.delay(10000)
 mq.cmd('/nav locyxz 355 -3 1467.59 log=off')
 WaitForNav()
 
-mq.cmd('/tar High Priest Yaran')
+mq.cmd('/mqtarget npc High Priest Yaran')
 mq.delay(300)
 mq.cmd('/keypress hail')
 
@@ -555,16 +572,18 @@ while mq.TLO.SpawnCount('Animated Statue')() > 0 do
 	if mq.TLO.Me.XTarget(1).CleanName() == mq.TLO.Spawn('Animated Statue').CleanName() and not mq.TLO.Me.Combat() then
 		mq.cmd('/xtar 1')
 		mq.delay(300)
+        mq.cmd('/squelch /face')
 		mq.cmd('/attack on')
-        if mq.TLO.Target() and mq.TLO.Target.Distance() > 25 then mq.cmd('/nav target distance=15') end
+        if mq.TLO.Target() and mq.TLO.Target.Distance() > 25 then mq.cmd('/squelch /nav target distance=15 log=off') end
 	end
 end
 
-mq.cmd('/nav spawn High Priest Yaran | log=off')
+mq.cmd('/squelch /nav spawn High Priest Yaran | log=off')
 WaitForNav()
 
-mq.cmd('/tar High Priest Yaran')
+mq.cmd('/squelch /mqtarget npc High Priest Yaran')
 mq.delay(300)
+mq.cmd('/squelch /face')
 mq.cmd('/attack on')
 
 while mq.TLO.SpawnCount('High Priest Yaran xtarhater')() < 1 do
@@ -591,11 +610,11 @@ local function StopAttack()
 	mq.cmd('/cwtna CheckPriorityTarget off nosave')
 	mq.cmdf('/%s CheckPriorityTarget off nosave', my_class )
 	mq.cmdf('/%s Mode manual nosave', my_class )
-	-- if DEBUG then print('StopAttack branch...') end
-	if mq.TLO.Target.CleanName() ~= my_name then mq.cmdf('/target %s', my_name) end
+	logger.debug('StopAttack branch...')
+	if mq.TLO.Target.CleanName() ~= my_name then mq.cmdf('/mqtarget %s', my_name) end
 end
 
-if DEBUG then print('Starting Loop...') end
+logger.debug('Starting Loop...')
 while true do
 	mq.doevents()
 	checkGroup()
@@ -608,40 +627,41 @@ while true do
 	end
 
 	if mq.TLO.SpawnCount('penance npc')() > 0 then 
-		if DEBUG then print('penance branch...') end
+		logger.debug('penance branch...')
 		if mq.TLO.SpawnCount('penance npc radius 60')() > 0 then 
-			if DEBUG then print('penance Attack branch...') end
-			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('penance').CleanName() then mq.cmd('/target penance npc') end
+			logger.debug('penance Attack branch...')
+			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('penance').CleanName() then mq.cmd('/mqtarget npc penance') end
 			mq.delay(100)
+            mq.cmd('/squelch /face')
 			mq.cmd('/attack on')
 		else
 			StopAttack()
 		end
 	elseif mq.TLO.SpawnCount('purification npc')() > 0 then 
-		if DEBUG then print('purification branch...') end
+		logger.debug('purification branch...')
 		if mq.TLO.SpawnCount('purification npc radius 60')() > 0 then 
-			if DEBUG then print('purification Attack branch...') end
-			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('purification').CleanName() then mq.cmd('/target purification npc') end
+			logger.debug('purification Attack branch...')
+			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('purification').CleanName() then mq.cmd('/mqtarget purification npc') end
 			mq.delay(100)
 			mq.cmd('/attack on')
 		else
 			StopAttack()
 		end		
 	elseif mq.TLO.SpawnCount('Rector npc')() > 0 then 
-		if DEBUG then print('Rector branch...') end
-		if mq.TLO.SpawnCount('Rector npc radius 60')() > 0 then 
-			if DEBUG then print('Rector Attack branch...') end
-			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Rector').CleanName() then mq.cmd('/target Rector npc') end
+		logger.debug('Rector branch...')
+		if mq.TLO.SpawnCount('Rector npc radius 120')() > 0 then 
+			logger.debug('Rector Attack branch...')
+			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('Rector').CleanName() then mq.cmd('/mqtarget Rector npc') end
 			mq.delay(100)
 			mq.cmd('/attack on')
 		else
 			StopAttack()
 		end
 	elseif mq.TLO.SpawnCount('acolyte npc')() > 0 then
-		if DEBUG then print('Acolyte branch...') end
+		logger.debug('Acolyte branch...')
 		if mq.TLO.SpawnCount('acolyte npc radius 60')() > 0 then
-			if DEBUG then print('Acolyte attack branch...') end
-			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('acolyte').CleanName() then mq.cmd('/target acolyte npc') end
+			logger.debug('Acolyte attack branch...')
+			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('acolyte').CleanName() then mq.cmd('/mqtarget acolyte npc') end
 			mq.delay(100)
 			mq.cmd('/attack on')
 		else
@@ -651,17 +671,16 @@ while true do
 		checkGroup()
 		if groupRunning == 1 then 
 			StopAttack()
-		-- elseif groupRunning == 0 and mq.TLO.Spawn('yaran').PctHPs() >= hold_NamedHP - 7 then 
 		elseif groupRunning == 0 then 
-			if DEBUG then print('Priest attack branch...') end
+			logger.debug('Priest attack branch...')
 			if mq.TLO.Target.CleanName() ~= mq.TLO.Spawn('yaran').CleanName() then
-				mq.cmd('/target yaran npc') 
-				hold_NamedHP = mq.TLO.Spawn('yaran').PctHPs()
+				mq.cmd('/mqtarget yaran npc') 
+				Hold_NamedHP = mq.TLO.Spawn('yaran').PctHPs()
 			end
 			mq.cmdf('/%s Mode sictank nosave', my_class )
 			mq.delay(100)
 			mq.cmd('/attack on')
-		elseif groupRunning == 0 and mq.TLO.Spawn('yaran').PctHPs() <= hold_NamedHP - 7 then 
+		elseif groupRunning == 0 and mq.TLO.Spawn('yaran').PctHPs() <= Hold_NamedHP - 7 then 
 			-- Delay for 15 seconds before attacking named again?
 		end
 	end
@@ -669,7 +688,8 @@ while true do
 	mq.delay(100)
 end
 
+if (settings.general.OpenChest == true) then action_openChest() end
+ClearStartingSetup()
 mq.unevent('Zoned')
 mq.unevent('Failed')
--- mq.cmd('/dgga /lua run xpprep')
 logger.info('...Ended')
